@@ -2,7 +2,7 @@
 
 An interactive digital kaleidoscope art tool for generating stunning symmetrical designs right in your browser.
 
-![Kaleidoscope App](https://raw.githubusercontent.com/dukebismaya/kaleidoscope-app/main/screenshot.png)
+![Kaleidoscope App](kaleidoscope.png)
 
 ## 🚀 Live Demo  
 👉 [Try it online](https://dukebismaya.github.io/kaleidoscope-app/)
