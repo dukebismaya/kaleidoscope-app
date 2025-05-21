@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bismaya Kaleidoscope Pro</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
+    <link rel="stylesheet" href="styles.css">
+
+</head>
+
+<body>
+    <div id="controls" class="controls-container">
+        <div class="control-group">
+            <label>Symmetry:</label>
+            <button id="symBtn1" onclick="setSymmetry(1)">1x</button>
+            <button id="symBtn4" onclick="setSymmetry(4)">4x</button>
+            <button id="symBtn6" onclick="setSymmetry(6)">6x</button>
+            <button id="symBtn8" onclick="setSymmetry(8)">8x</button>
+            <button id="symBtn10" onclick="setSymmetry(10)">10x</button>
+            <button id="symBtn12" onclick="setSymmetry(12)">12x</button>
+        </div>
+        <div class="control-group">
+            <label>Shape:</label>
+            <button id="shapeBtnLine" onclick="setShape('line')">Line</button>
+            <button id="shapeBtnCurve" onclick="setShape('curve')">Curve</button>
+            <button id="shapeBtnCircle" onclick="setShape('circle')">Circle</button>
+        </div>
+        <div class="control-group">
+            <button onclick="randomizePalette()">Random Palette</button>
+            <button onclick="changePenColor()">Random Pen Color</button>
+        </div>
+        <div class="control-group">
+            <label id="strokeWeightLabel" for="strokeWeightSlider">Thickness: 4</label>
+            <input type="range" id="strokeWeightSlider" min="1" max="50" value="4"
+                oninput="updateStrokeWeight(this.value)">
+        </div>
+        <div class="control-group">
+            <button onclick="toggleBackground()">Toggle BG & Clear</button>
+            <button onclick="toggleGlobalRotation()">Toggle Rotation</button>
+        </div>
+        <div class="control-group">
+            <button onclick="generateRandomArt()">Random Art</button>
+            <button onclick="clearUserCanvas()">Clear</button>
+            <button onclick="saveUserCanvas()">Save PNG</button>
+        </div>
+        <div class="control-group">
+            <label for="colorPicker">Color:</label>
+            <input type="color" id="colorPicker" value="#FF6B6B" oninput="selectCustomColor(this.value)">
+            <button onclick="nextColorFromPalette()">Next Palette Color</button>
+        </div>
+    </div>
+    <div id="canvas-container">
+        <div id="fps-counter"></div>
+    </div>
+
+    <footer class="app-footer">
+        <div class="footer-content">
+            <span class="footer-text">Crafted with <span class="heart">♥</span> by</span>
+            <span class="designer-name">Bismaya</span>
+            <div class="footer-decoration">
+                <div class="footer-circle" style="--delay: 0s"></div>
+                <div class="footer-circle" style="--delay: 1s"></div>
+                <div class="footer-circle" style="--delay: 2s"></div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+
+</html>
