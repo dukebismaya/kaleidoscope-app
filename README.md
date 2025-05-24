@@ -5,7 +5,8 @@ An interactive digital kaleidoscope art tool for generating stunning symmetrical
 ![Kaleidoscope App](kaleidoscope.png)
 
 ## 🚀 Live Demo  
-👉 [Try it online](https://dukebismaya.github.io/kaleidoscope-app/)
+👉 [Try it online: GitHub](https://dukebismaya.github.io/kaleidoscope-app/)
+👉 [Try it online: Netlify](https://kaleidoscope-pro.netlify.app/)
 
 ## ✨ Features
 - Multiple symmetry modes (1x–12x)
