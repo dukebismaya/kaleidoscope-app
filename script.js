@@ -1,4 +1,3 @@
-
 let symmetrySegments = 6;
 let currentPenColor;
 let strokeThickness = 4;
@@ -50,122 +49,399 @@ let cachedAngle = 0;
 let bgAnimOffset = 0;
 const bgAnimSpeed = 0.002;
 
-function setupDrawingBuffer(buffer, w, h) {
-    if (!buffer) return;
-    buffer.strokeCap(ROUND);
-    buffer.angleMode(RADIANS);
+let layers = [];
+let currentLayerIndex = 0;
+const maxLayers = 5;
+
+let historyStack = [];
+let historyIndex = -1;
+const maxHistorySize = 20;
+
+function setupDrawingBuffer(buffer, width, height) {
     buffer.background(bgColor[0], bgColor[1], bgColor[2]);
+    buffer.strokeCap(ROUND);
+    buffer.strokeJoin(ROUND);
 }
 
-function setup() {
-    canvasContainer = document.getElementById('canvas-container');
-    fpsCounter = document.getElementById('fps-counter');
+function initLayers() {
+    layers = [];
+    for (let i = 0; i < 1; i++) {
+        addNewLayer();
+    }
+    currentLayerIndex = 0;
+    updateLayerButtons();
+}
 
-    if (!fpsCounter) {
-        fpsCounter = document.createElement('div');
-        fpsCounter.id = 'fps-counter';
-        canvasContainer.appendChild(fpsCounter);
+function smoothScrollTo(element, targetElement) {
+    if (!element || !targetElement) return;
+    
+    const targetPosition = targetElement.offsetTop;
+    element.scrollTo({
+        top: targetPosition,
+        behavior: 'smooth'
+    });
+}
+
+function addNewLayer() {
+    if (layers.length >= maxLayers) return;
+    
+    let newBuffer = createGraphics(width, height);
+    setupDrawingBuffer(newBuffer);
+    
+    layers.push({
+        buffer: newBuffer,
+        visible: true,
+        opacity: 1.0,
+        name: `Layer ${layers.length + 1}`
+    });
+    
+    currentLayerIndex = layers.length - 1;
+    drawingBuffer = layers[currentLayerIndex].buffer;
+    
+    updateLayerButtons();
+    
+    setTimeout(() => {
+        const layerList = document.getElementById('layer-controls');
+        const newRow = layerList.lastElementChild;
+        if (layerList && newRow) {
+            smoothScrollTo(layerList, newRow);
+        }
+    }, 50);
+    
+    saveToHistory();
+}
+
+function deleteCurrentLayer() {
+    if (layers.length <= 1) return;
+    
+    layers.splice(currentLayerIndex, 1);
+    currentLayerIndex = Math.min(currentLayerIndex, layers.length - 1);
+    drawingBuffer = layers[currentLayerIndex].buffer;
+    
+    updateLayerButtons();
+    saveToHistory();
+}
+
+function selectLayer(index) {
+    if (index >= 0 && index < layers.length) {
+        currentLayerIndex = index;
+        drawingBuffer = layers[currentLayerIndex].buffer;
+        updateLayerButtons();
+        needsRedraw = true;
+    }
+}
+
+function toggleLayerVisibility(index) {
+    if (index >= 0 && index < layers.length) {
+        const wasVisible = layers[index].visible;
+        layers[index].visible = !wasVisible;
+        
+        // If we're hiding the current active layer, switch to a visible one
+        if (wasVisible && index === currentLayerIndex) {
+            ensureVisibleActiveLayer();
+        }
+        
+        updateLayerButtons();
+        needsRedraw = true;
+    }
+}
+
+function updateLayerOpacity(index, opacity) {
+    if (index >= 0 && index < layers.length) {
+        // Only update if the opacity actually changed
+        if (layers[index].opacity !== opacity) {
+            layers[index].opacity = opacity;
+            needsRedraw = true; // Only set redraw flag when needed
+        }
+    }
+}
+
+
+function updateLayerButtons() {
+    const layerContainer = document.getElementById('layer-controls');
+    if (!layerContainer) return;
+    
+    const newContainer = layerContainer.cloneNode(false);
+    layerContainer.parentNode.replaceChild(newContainer, layerContainer);
+    
+    newContainer.innerHTML = '';
+    
+    for (let idx = 0; idx < layers.length; idx++) {
+        const layer = layers[idx];
+        const layerRow = document.createElement('div');
+        layerRow.className = 'layer-row';
+        
+        const layerBtn = document.createElement('button');
+        layerBtn.textContent = idx === currentLayerIndex ? 
+            `✏️ ${layer.name}` : layer.name;
+        layerBtn.className = idx === currentLayerIndex ? 'layer-button active-layer' : 'layer-button';
+        if (idx === currentLayerIndex && !layer.visible) {
+            layerBtn.classList.add('hidden-active-layer');
+        }
+        layerBtn.onclick = function() {
+            selectLayer(idx);
+            needsRedraw = true;
+        };
+        
+        // Visibility toggle
+        const visibilityBtn = document.createElement('button');
+        visibilityBtn.className = 'layer-visibility';
+        visibilityBtn.innerHTML = layer.visible ? '👁️' : '👁️‍🗨️';
+        visibilityBtn.title = layer.visible ? 'Hide Layer' : 'Show Layer';
+        visibilityBtn.onclick = function() {
+            toggleLayerVisibility(idx);
+            needsRedraw = true;
+        };
+        
+        // Opacity slider
+        const opacityControl = document.createElement('input');
+        opacityControl.type = 'range';
+        opacityControl.min = '0';
+        opacityControl.max = '100';
+        opacityControl.value = layer.opacity * 100;
+        opacityControl.className = 'layer-opacity';
+        opacityControl.title = 'Layer Opacity';
+        opacityControl.oninput = function() {
+            updateLayerOpacity(idx, this.value / 100);
+        };
+        
+        layerRow.appendChild(visibilityBtn);
+        layerRow.appendChild(layerBtn);
+        layerRow.appendChild(opacityControl);
+        newContainer.appendChild(layerRow);
+    }
+}
+
+function ensureVisibleActiveLayer() {
+    // If current layer is not visible, switch to the first visible layer
+    if (!layers[currentLayerIndex].visible) {
+        const visibleLayerIndex = layers.findIndex(layer => layer.visible);
+        if (visibleLayerIndex >= 0) {
+            selectLayer(visibleLayerIndex);
+            return true;
+        } else {
+            // If no layers are visible, make the current one visible
+            layers[currentLayerIndex].visible = true;
+            updateLayerButtons();
+            return true;
+        }
+    }
+    return false;
+}
+
+function mousePressed() {
+    if (mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height) {
+        if (!layers[currentLayerIndex].visible) {
+            ensureVisibleActiveLayer();
+            if (!layers[currentLayerIndex].visible) {
+                return false;
+            }
+        }
+        
+        if (usePaletteColor) {
+            nextColorFromPalette();
+        }
+        prevMouseX = mouseX;
+        prevMouseY = mouseY;
+        if (currentShape === 'circle') {
+            drawKaleidoscopeShape(drawingBuffer, mouseX, mouseY, mouseX, mouseY, mouseX, mouseY, 
+                currentShape, currentPenColor, strokeThickness);
+        }
+    }
+}
+
+function interpolatePoints(x1, y1, x2, y2, maxDistance) {
+    const distance = dist(x1, y1, x2, y2);
+    if (distance <= maxDistance) {
+        return [[x2, y2]]; // Return just the end point if close enough
+    }
+    
+    // Calculate how many points to add
+    const steps = ceil(distance / maxDistance);
+    const points = [];
+    
+    // Create interpolated points
+    for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        const x = lerp(x1, x2, t);
+        const y = lerp(y1, y2, t);
+        points.push([x, y]);
+    }
+    
+    return points;
+}
+
+function mouseDragged() {
+    const now = millis();
+    const targetThrottle = frameRateValue < 30 ? 16 : 8;
+
+    if (now - lastDrawEvent < targetThrottle) {
+        return false;
+    }
+    lastDrawEvent = now;
+    
+    if (!drawingBuffer || drawingBuffer.width <= 0 || drawingBuffer.height <= 0) {
+        return false;
     }
 
-    let containerW = canvasContainer.offsetWidth;
-    let containerH = canvasContainer.offsetHeight;
-
-    let canvasW = max(1, containerW);
-    let canvasH = max(1, containerH);
-
-    let cnv = createCanvas(canvasW, canvasH);
-    cnv.parent('canvas-container');
-
-    document.getElementById('defaultCanvas0').classList.add('drawing-cursor');
-
-    cursorBuffer = createGraphics(50, 50);
-
-    drawingBuffer = createGraphics(canvasW, canvasH);
-    setupDrawingBuffer(drawingBuffer, canvasW, canvasH);
-
-    cachedWidth = canvasW;
-    cachedHeight = canvasH;
-    cachedCenterX = cachedWidth / 2;
-    cachedCenterY = cachedHeight / 2;
-    updateCachedAngle();
-
-    setRandomPalette();
-    updateActiveSymmetryButton();
-    updateActiveShapeButton();
-
-    frameRate(60);
+    if (!layers[currentLayerIndex].visible) {
+        ensureVisibleActiveLayer();
+        if (!layers[currentLayerIndex].visible) {
+            return false;
+        }
+    }
+    
+    if (mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height && mouseIsPressed) {
+        // Only interpolate for line and curve
+        if (currentShape !== 'circle' && prevMouseX !== -1 && prevMouseY !== -1) {
+            // Interpolate between prev and current if moving too fast
+            const points = interpolatePoints(prevMouseX, prevMouseY, mouseX, mouseY, 5);
+            
+            let lastX = prevMouseX;
+            let lastY = prevMouseY;
+            
+            // Draw all the interpolated points
+            points.forEach(([x, y]) => {
+                drawKaleidoscopeShape(drawingBuffer, x, y, lastX, lastY, 
+                    prevMouseX, prevMouseY, currentShape, currentPenColor, strokeThickness);
+                lastX = x;
+                lastY = y;
+            });
+            
+            prevMouseX = mouseX;
+            prevMouseY = mouseY;
+        } else {
+            drawKaleidoscopeShape(drawingBuffer, mouseX, mouseY, pmouseX, pmouseY, 
+                prevMouseX, prevMouseY, currentShape, currentPenColor, strokeThickness);
+            prevMouseX = mouseX;
+            prevMouseY = mouseY;
+        }
+    }
+    return false;
 }
+
+function saveToHistory() {
+    if (historyIndex < historyStack.length - 1) {
+        historyStack = historyStack.slice(0, historyIndex + 1);
+    }
+    
+    // Create a deep copy of the layer state
+    const layerState = layers.map(layer => {
+        // Create a proper copy of the image data
+        let imgCopy = null;
+        if (layer.buffer) {
+            imgCopy = layer.buffer.get();
+        }
+        
+        return {
+            imageData: imgCopy,
+            visible: layer.visible,
+            opacity: layer.opacity,
+            name: layer.name
+        };
+    });
+    
+    // Push current state to history
+    historyStack.push({
+        layers: layerState,
+        currentIndex: currentLayerIndex
+    });
+    
+    historyIndex++;
+    
+    // Limit history size
+    if (historyStack.length > maxHistorySize) {
+        historyStack.shift();
+        historyIndex--;
+    }
+    
+    console.log(`Saved to history: ${historyIndex} of ${historyStack.length}`);
+}
+
+function applyHistoryState(state) {
+    if (!state || !state.layers) {
+        console.warn("Invalid history state");
+        return;
+    }
+    
+    // Restore layer count
+    while (layers.length < state.layers.length) {
+        let newBuffer = createGraphics(width, height);
+        setupDrawingBuffer(newBuffer, width, height);
+        
+        layers.push({
+            buffer: newBuffer,
+            visible: true,
+            opacity: 1.0,
+            name: `Layer ${layers.length + 1}`
+        });
+    }
+    
+    while (layers.length > state.layers.length) {
+        const removed = layers.pop();
+        if (removed && removed.buffer) {
+            removed.buffer.remove();
+        }
+    }
+    
+    // Restore each layer
+    for (let idx = 0; idx < state.layers.length; idx++) {
+        const layerState = state.layers[idx];
+        if (layers[idx].buffer) {
+            layers[idx].buffer.clear();
+            layers[idx].buffer.background(bgColor[0], bgColor[1], bgColor[2]);
+            
+            if (layerState.imageData) {
+                layers[idx].buffer.image(layerState.imageData, 0, 0);
+            }
+        }
+        
+        layers[idx].visible = layerState.visible;
+        layers[idx].opacity = layerState.opacity;
+        layers[idx].name = layerState.name;
+    }
+    
+    currentLayerIndex = Math.min(state.currentIndex, layers.length - 1);
+    drawingBuffer = layers[currentLayerIndex].buffer;
+    
+    updateLayerButtons();
+    needsRedraw = true; // Important! Force a redraw
+}
+
+window.undoAction = function() {
+    if (historyIndex > 0) {
+        console.log(`Undoing: ${historyIndex} to ${historyIndex-1}`);
+        historyIndex--;
+        applyHistoryState(historyStack[historyIndex]);
+    } else {
+        console.log("Nothing to undo");
+    }
+}
+
+window.redoAction = function() {
+    if (historyIndex < historyStack.length - 1) {
+        console.log(`Redoing: ${historyIndex} to ${historyIndex+1}`);
+        historyIndex++;
+        applyHistoryState(historyStack[historyIndex]);
+    } else {
+        console.log("Nothing to redo");
+    }
+}
+
 
 function updateCachedAngle() {
     let effectiveSymmetry = (symmetrySegments === 1) ? 1 : symmetrySegments;
     cachedAngle = (effectiveSymmetry > 1) ? (TWO_PI / effectiveSymmetry) : 0;
 }
 
-let cursorNeedsUpdate = true;
-let lastCursorX = 0;
-let lastCursorY = 0;
-let lastCursorUpdateTime = 0;
-
-function draw() {
-    const now = millis();
-
-    if (now - lastFpsUpdate > fpsUpdateInterval) {
-        frameRateValue = frameRate();
-        if (fpsCounter) {
-            fpsCounter.textContent = `FPS: ${frameRateValue.toFixed(1)}`;
-        }
-        lastFpsUpdate = now;
-    }
-
-    if (!needsRedraw && !enableGlobalRotation && now - lastDrawTime < 100) {
-        if (mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height) {
-            background(bgColor[0], bgColor[1], bgColor[2]);
-            image(drawingBuffer, 0, 0);
-            updateCursor();
-        }
-        return;
-    }
-
-    lastDrawTime = now;
-    needsRedraw = false;
-
-    if (!drawingBuffer || drawingBuffer.width <= 0 || drawingBuffer.height <= 0) {
-        background(50);
-        return;
-    }
-
-    if (enableGlobalRotation) {
-        background(bgColor[0], bgColor[1], bgColor[2]);
-        push();
-        translate(cachedCenterX, cachedCenterY);
-        rotate(globalRotationAngle);
-        image(drawingBuffer, -cachedWidth / 2, -cachedHeight / 2);
-        pop();
-        globalRotationAngle += rotationSpeed;
-        needsRedraw = true;
-    } else {
-        bgAnimOffset += bgAnimSpeed;
-
-        let t = bgAnimOffset;
-        let bgR = map(sin(t), -1, 1, bgColor[0] * 0.85, bgColor[0] * 1.05);
-        let bgG = map(sin(t + PI / 1.5), -1, 1, bgColor[1] * 0.85, bgColor[1] * 1.05);
-        let bgB = map(sin(t + PI / 3), -1, 1, bgColor[2] * 0.85, bgColor[2] * 1.05);
-        background(constrain(bgR, 0, 255), constrain(bgG, 0, 255), constrain(bgB, 0, 255));
-        image(drawingBuffer, 0, 0);
-    }
-
-    if (mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height) {
-        updateCursor();
-    }
-}
 
 function updateCursor() {
     const now = performance.now();
 
     if (!cursorNeedsUpdate &&
-        now - lastCursorUpdateTime < 16 &&
-        Math.abs(mouseX - lastCursorX) < 8 &&
-        Math.abs(mouseY - lastCursorY) < 8) {
+        now - lastCursorUpdateTime < 8 &&
+        Math.abs(mouseX - lastCursorX) < 5 &&
+        Math.abs(mouseY - lastCursorY) < 5) {
         push();
         translate(mouseX - 25, mouseY - 25);
         image(cursorBuffer, 0, 0);
@@ -179,6 +455,7 @@ function updateCursor() {
 
     if (cursorNeedsUpdate) {
         if (!cursorBuffer || cursorBuffer.width !== 50) {
+            if (cursorBuffer) cursorBuffer.remove();
             cursorBuffer = createGraphics(50, 50);
         }
 
@@ -230,29 +507,51 @@ function updateCursor() {
 
 function drawKaleidoscopeShape(buffer, x, y, px, py, ppx, ppy, shapeType, penColor, thickness) {
     if (!buffer || buffer.width <= 0 || buffer.height <= 0) return;
-
+    
+    if (shapeType !== 'circle' && 
+        dist(x, y, px, py) < 0.5 && 
+        frameRateValue < 30) {
+        return;
+    }
+    
+    const simplifyEffects = frameRateValue < 30;
+    
     let r = red(penColor);
     let g = green(penColor);
     let b = blue(penColor);
     let baseA = alpha(penColor);
-
-    let alphaOffset = (x * 0.01) % 100;
-    let strokeOffset = (y * 0.01) % 100;
-
-    let alphaPulse = 0.85 + sin(frameCount * 0.25 + alphaOffset) * 0.15;
-    let dynamicA = baseA * alphaPulse;
-    dynamicA = constrain(dynamicA, 0, 255);
-    let drawingColor = color(r, g, b, dynamicA);
-
+    
+    let drawingColor;
+    
+    if (simplifyEffects) {
+        drawingColor = color(r, g, b, baseA);
+    } else {
+        let alphaOffset = (x * 0.01) % 100;
+        let strokeOffset = (y * 0.01) % 100;
+        
+        let alphaPulse = 0.85 + sin(frameCount * 0.25 + alphaOffset) * 0.15;
+        let dynamicA = baseA * alphaPulse;
+        dynamicA = constrain(dynamicA, 0, 255);
+        drawingColor = color(r, g, b, dynamicA);
+    }
+    
     buffer.stroke(drawingColor);
     if (shapeType === 'circle') {
         buffer.fill(drawingColor);
     } else {
         buffer.noFill();
     }
-
-    let swPulse = 1.0 + sin(frameCount * 0.15 + strokeOffset) * 0.2;
-    let dynamicStrokeWeight = thickness * swPulse;
+    
+    let dynamicStrokeWeight;
+    
+    if (simplifyEffects) {
+        dynamicStrokeWeight = thickness;
+    } else {
+        let strokeOffset = (y * 0.01) % 100;
+        let swPulse = 1.0 + sin(frameCount * 0.15 + strokeOffset) * 0.2;
+        dynamicStrokeWeight = thickness * swPulse;
+    }
+    
     dynamicStrokeWeight = max(1, dynamicStrokeWeight);
     buffer.strokeWeight(dynamicStrokeWeight);
 
@@ -290,104 +589,6 @@ function drawKaleidoscopeShape(buffer, x, y, px, py, ppx, ppy, shapeType, penCol
     needsRedraw = true;
 }
 
-function drawShapeSegment(buffer, x, y, px, py, ppx, ppy, shapeType, dynaStrokeWeight) {
-    switch (shapeType) {
-        case 'line':
-            if (px !== -1 && py !== -1) {
-                buffer.line(px, py, x, y);
-            }
-            break;
-        case 'curve':
-            buffer.noFill();
-            if (ppx !== -1 && ppy !== -1 && px !== -1 && py !== -1) {
-                buffer.beginShape();
-                buffer.vertex(ppx, ppy);
-                buffer.quadraticVertex(px, py, x, y);
-                buffer.endShape();
-            } else if (px !== -1 && py !== -1) {
-                buffer.line(px, py, x, y);
-            }
-            break;
-        case 'circle':
-            buffer.ellipse(x, y, dynaStrokeWeight * 1.5, dynaStrokeWeight * 1.5);
-            break;
-    }
-}
-
-function mouseDragged() {
-    const now = millis();
-
-    if (now - lastDrawEvent < drawThrottleInterval) {
-        return false;
-    }
-    lastDrawEvent = now;
-
-    if (!drawingBuffer || drawingBuffer.width <= 0 || drawingBuffer.height <= 0) {
-        return false;
-    }
-
-    if (mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height && mouseIsPressed) {
-        drawKaleidoscopeShape(drawingBuffer, mouseX, mouseY, pmouseX, pmouseY, prevMouseX, prevMouseY, currentShape, currentPenColor, strokeThickness);
-
-        prevMouseX = pmouseX;
-        prevMouseY = pmouseY;
-    }
-    return false;
-}
-
-function mousePressed() {
-    if (mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height) {
-        if (usePaletteColor) {
-            nextColorFromPalette();
-        }
-        prevMouseX = mouseX;
-        prevMouseY = mouseY;
-
-        if (currentShape === 'circle') {
-            drawKaleidoscopeShape(drawingBuffer, mouseX, mouseY, mouseX, mouseY, mouseX, mouseY, currentShape, currentPenColor, strokeThickness);
-        }
-    }
-}
-
-function mouseReleased() {
-    prevMouseX = -1;
-    prevMouseY = -1;
-}
-
-function windowResized() {
-    let containerW = canvasContainer.offsetWidth;
-    let containerH = canvasContainer.offsetHeight;
-
-    let newW = max(1, containerW);
-    let newH = max(1, containerH);
-
-    if (newW !== cachedWidth || newH !== cachedHeight) {
-        resizeCanvas(newW, newH);
-
-        let oldBufferImage;
-        if (drawingBuffer && drawingBuffer.width > 0 && drawingBuffer.height > 0) {
-            oldBufferImage = drawingBuffer.get();
-        }
-
-        if (drawingBuffer) {
-            drawingBuffer.remove();
-        }
-
-        drawingBuffer = createGraphics(newW, newH);
-        setupDrawingBuffer(drawingBuffer, newW, newH);
-
-        if (oldBufferImage && oldBufferImage.width > 0 && oldBufferImage.height > 0) {
-            drawingBuffer.image(oldBufferImage, 0, 0, newW, newH, 0, 0, oldBufferImage.width, oldBufferImage.height);
-        }
-
-        cachedWidth = newW;
-        cachedHeight = newH;
-        cachedCenterX = cachedWidth / 2;
-        cachedCenterY = cachedHeight / 2;
-
-        needsRedraw = true;
-    }
-}
 
 window.setSymmetry = function (segments) {
     symmetrySegments = segments;
@@ -406,48 +607,29 @@ function updateActiveSymmetryButton() {
     });
 }
 
-window.setShape = function (shape) {
-    currentShape = shape;
-    updateActiveShapeButton();
-    cursorNeedsUpdate = true;
-    needsRedraw = true;
-}
-
-function updateActiveShapeButton() {
-    const shapes = ['line', 'curve', 'circle'];
-    shapes.forEach(s => {
-        const btnId = `shapeBtn${s.charAt(0).toUpperCase() + s.slice(1)}`;
-        const btn = document.getElementById(btnId);
-        if (btn) {
-            btn.classList.toggle('active-shape', s === currentShape);
-        }
-    });
-}
-
 window.clearUserCanvas = function () {
     if (drawingBuffer && drawingBuffer.width > 0 && drawingBuffer.height > 0) {
         drawingBuffer.background(bgColor[0], bgColor[1], bgColor[2]);
+        saveToHistory();
         needsRedraw = true;
     }
 }
 
-window.saveUserCanvas = function () {
-    if (enableGlobalRotation) {
-        saveCanvas('kaleidoscope_rotated.png');
-    } else {
-        if (drawingBuffer && drawingBuffer.width > 0 && drawingBuffer.height > 0) {
-            save(drawingBuffer, 'kaleidoscope.png');
-        } else {
-            console.error("Cannot save, drawing buffer is invalid.");
+window.clearAllLayers = function() {
+    for (let i = 0; i < layers.length; i++) {
+        if (layers[i].buffer) {
+            layers[i].buffer.background(bgColor[0], bgColor[1], bgColor[2]);
         }
     }
-}
+    saveToHistory();
+};
 
 window.setRandomPalette = function () {
     usePaletteColor = true;
     currentPaletteIndex = floor(random(colorPalettes.length));
     colorIndexInPalette = 0;
     nextColorFromPalette();
+    updateThemeColors();
     needsRedraw = true;
 }
 
@@ -627,5 +809,320 @@ window.generateRandomArt = function () {
     }
 
     drawingBuffer.pop();
+    saveToHistory();
     needsRedraw = true;
 };
+
+
+function keyPressed() {
+    // Check for Ctrl+Z (undo)
+    if (keyCode === 90 && keyIsDown(CONTROL)) {
+        undoAction();
+        return false;
+    }
+
+    // Check for Ctrl+Y or Ctrl+Shift+Z (redo)
+    if ((keyCode === 89 && keyIsDown(CONTROL)) || 
+        (keyCode === 90 && keyIsDown(CONTROL) && keyIsDown(SHIFT))) {
+        redoAction();
+        return false;
+    }
+
+    return true;
+}
+
+window.addLayer = function() {
+    addNewLayer();
+    saveToHistory();
+}
+
+window.deleteLayer = function() {
+    deleteCurrentLayer();
+    saveToHistory();
+}
+
+function updateThemeColors() {
+    const root = document.documentElement;
+    if (colorPalettes.length > 0 && colorPalettes[currentPaletteIndex].length > 0) {
+        const primaryColor = color(colorPalettes[currentPaletteIndex][0]);
+        const accentColor = color(colorPalettes[currentPaletteIndex][1] || colorPalettes[currentPaletteIndex][0]);
+        
+        const primaryHex = colorToHex(primaryColor);
+        const accentHex = colorToHex(accentColor);
+        
+        // Create a darker variant for primary
+        const primaryDarkR = constrain(red(primaryColor) * 0.7, 0, 255);
+        const primaryDarkG = constrain(green(primaryColor) * 0.7, 0, 255);
+        const primaryDarkB = constrain(blue(primaryColor) * 0.7, 0, 255);
+        const primaryDarkHex = `#${Math.round(primaryDarkR).toString(16).padStart(2, '0')}${Math.round(primaryDarkG).toString(16).padStart(2, '0')}${Math.round(primaryDarkB).toString(16).padStart(2, '0')}`;
+        
+        // Set the CSS variables
+        root.style.setProperty('--primary', primaryHex);
+        root.style.setProperty('--primary-dark', primaryDarkHex);
+        root.style.setProperty('--accent', accentHex);
+    }
+}
+
+window.setRandomPalette = function() {
+    usePaletteColor = true;
+    currentPaletteIndex = floor(random(colorPalettes.length));
+    colorIndexInPalette = 0;
+    nextColorFromPalette();
+    updateThemeColors();
+    needsRedraw = true;
+}
+
+function setup() {
+    canvasContainer = document.getElementById('canvas-container');
+    fpsCounter = document.getElementById('fps-counter');
+
+    const footer = document.querySelector('.app-footer');
+    fpsCounter = document.getElementById('fps-counter');
+
+    if (!fpsCounter) {
+        fpsCounter = document.createElement('div');
+        fpsCounter.id = 'fps-counter';
+        // canvasContainer.appendChild(fpsCounter);
+        footer.appendChild(fpsCounter);
+    }
+
+    // Calculate available space more accurately
+    const containerW = canvasContainer.clientWidth;
+    const containerH = canvasContainer.clientHeight || window.innerHeight * 0.7;
+
+    // Ensure we have reasonable dimensions
+    let canvasW = max(600, containerW);
+    let canvasH = max(400, containerH);
+
+    let cnv = createCanvas(canvasW, canvasH);
+    cnv.parent('canvas-container');
+
+    document.getElementById('defaultCanvas0').classList.add('drawing-cursor');
+    
+    const canvasElement = document.getElementById('defaultCanvas0');
+    if (canvasElement) {
+        canvasElement.style.width = '100%';
+        canvasElement.style.height = '100%';
+    }
+
+    cursorBuffer = createGraphics(50, 50);
+
+    drawingBuffer = createGraphics(canvasW, canvasH);
+    setupDrawingBuffer(drawingBuffer, canvasW, canvasH);
+
+    cachedWidth = canvasW;
+    cachedHeight = canvasH;
+    cachedCenterX = cachedWidth / 2;
+    cachedCenterY = cachedHeight / 2;
+    updateCachedAngle();
+
+    setRandomPalette();
+    updateThemeColors();
+    updateActiveSymmetryButton();
+    updateActiveShapeButton();
+
+    frameRate(60);
+
+
+    saveToHistory();
+
+    initLayers();
+    
+    drawingBuffer = layers[currentLayerIndex].buffer;
+    
+    windowResized();
+}
+
+
+let cursorNeedsUpdate = true;
+let lastCursorX = 0;
+let lastCursorY = 0;
+let lastCursorUpdateTime = 0;
+
+function draw() {
+    const now = millis();
+
+    // Only update FPS counter occasionally
+    if (now - lastFpsUpdate > fpsUpdateInterval) {
+        frameRateValue = frameRate();
+        if (fpsCounter) {
+            fpsCounter.textContent = `FPS: ${frameRateValue.toFixed(1)}`;
+        }
+        lastFpsUpdate = now;
+    }
+
+    // Skip redraws when nothing changed and not in rotation mode
+    if (!needsRedraw && !enableGlobalRotation && now - lastDrawTime < 200) {
+        if (mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height) {
+            updateCursor();
+        }
+        return;
+    }
+
+    // We're redrawing now, so reset the flag
+    lastDrawTime = now;
+    needsRedraw = false;
+
+    if (!drawingBuffer || drawingBuffer.width <= 0 || drawingBuffer.height <= 0) {
+        background(50);
+        return;
+    }
+
+    if (enableGlobalRotation) {
+        // Rotation mode rendering
+        background(bgColor[0], bgColor[1], bgColor[2]);
+        push();
+        translate(cachedCenterX, cachedCenterY);
+        rotate(globalRotationAngle);
+
+        // Draw all visible layers with their opacity
+        for (let i = 0; i < layers.length; i++) {
+            const layer = layers[i];
+            if (layer.visible && layer.buffer) {
+                push();
+                tint(255, layer.opacity * 255);
+                image(layer.buffer, -cachedWidth / 2, -cachedHeight / 2);
+                pop();
+            }
+        }
+
+        pop();
+        globalRotationAngle += rotationSpeed;
+        needsRedraw = true;
+    } else {
+        if (frameRateValue > 30) {
+            bgAnimOffset += bgAnimSpeed;
+            let t = bgAnimOffset;
+            let bgR = map(sin(t), -1, 1, bgColor[0] * 0.85, bgColor[0] * 1.05);
+            let bgG = map(sin(t + PI / 1.5), -1, 1, bgColor[1] * 0.85, bgColor[1] * 1.05);
+            let bgB = map(sin(t + PI / 3), -1, 1, bgColor[2] * 0.85, bgColor[2] * 1.05);
+            background(constrain(bgR, 0, 255), constrain(bgG, 0, 255), constrain(bgB, 0, 255));
+        } else {
+            background(bgColor[0], bgColor[1], bgColor[2]);
+        }
+
+        for (let i = 0; i < layers.length; i++) {
+            const layer = layers[i];
+            if (layer.visible && layer.buffer && layer.opacity > 0.01) {
+                push();
+                tint(255, layer.opacity * 255);
+                image(layer.buffer, 0, 0);
+                pop();
+            }
+        }
+    }
+
+    // Draw cursor if mouse is over canvas
+    if (mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height) {
+        updateCursor();
+    }
+}
+
+
+function drawShapeSegment(buffer, x, y, px, py, ppx, ppy, shapeType, dynaStrokeWeight) {
+    switch (shapeType) {
+        case 'line':
+            if (px !== -1 && py !== -1) {
+                buffer.line(px, py, x, y);
+            } else {
+                buffer.ellipse(x, y, dynaStrokeWeight * 0.5, dynaStrokeWeight * 0.5);
+            }
+            break;
+            
+        case 'curve':
+            if (ppx !== -1 && ppy !== -1 && px !== -1 && py !== -1) {
+                buffer.beginShape();
+                buffer.vertex(ppx, ppy);
+                buffer.quadraticVertex(px, py, x, y);
+                buffer.endShape();
+            } else if (px !== -1 && py !== -1) {
+                buffer.line(px, py, x, y);
+            } else {
+                buffer.ellipse(x, y, dynaStrokeWeight * 0.5, dynaStrokeWeight * 0.5);
+            }
+            break;
+            
+        case 'circle':
+            buffer.ellipse(x, y, dynaStrokeWeight * 1.5, dynaStrokeWeight * 1.5);
+            break;
+    }
+}
+
+function mouseReleased() {
+    if (prevMouseX !== -1 && prevMouseY !== -1) {
+        setTimeout(() => {
+            saveToHistory();
+        }, 10);
+    }
+    prevMouseX = -1;
+    prevMouseY = -1;
+}
+
+function windowResized() {
+    const containerW = canvasContainer.clientWidth;
+    const containerH = canvasContainer.clientHeight || window.innerHeight * 0.7;
+
+    // Ensure we have reasonable dimensions
+    let newW = max(600, containerW);
+    let newH = max(400, containerH);
+
+    // Only resize if dimensions changed significantly (avoids constant resizing)
+    if (abs(newW - cachedWidth) > 10 || abs(newH - cachedHeight) > 10) {
+        console.log(`Resizing canvas to ${newW}x${newH}`);
+        resizeCanvas(newW, newH);
+
+        // Update all layer buffers
+        for (let i = 0; i < layers.length; i++) {
+            let layer = layers[i];
+            let oldBuffer = layer.buffer;
+            
+            layer.buffer = createGraphics(width, height);
+            setupDrawingBuffer(layer.buffer);
+            
+            // Copy contents from old buffer if it exists
+            if (oldBuffer) {
+                layer.buffer.image(oldBuffer, 0, 0, width, height);
+                oldBuffer.remove();
+            }
+        }
+        
+        drawingBuffer = layers[currentLayerIndex].buffer;
+
+        cachedWidth = newW;
+        cachedHeight = newH;
+        cachedCenterX = cachedWidth / 2;
+        cachedCenterY = cachedHeight / 2;
+
+        needsRedraw = true;
+    }
+}
+
+window.setShape = function (shape) {
+    currentShape = shape;
+    updateActiveShapeButton();
+    cursorNeedsUpdate = true;
+    needsRedraw = true;
+}
+
+function updateActiveShapeButton() {
+    const shapes = ['line', 'curve', 'circle'];
+    shapes.forEach(s => {
+        const btnId = `shapeBtn${s.charAt(0).toUpperCase() + s.slice(1)}`;
+        const btn = document.getElementById(btnId);
+        if (btn) {
+            btn.classList.toggle('active-shape', s === currentShape);
+        }
+    });
+}
+
+window.saveUserCanvas = function () {
+    if (enableGlobalRotation) {
+        saveCanvas('kaleidoscope_rotated.png');
+    } else {
+        if (drawingBuffer && drawingBuffer.width > 0 && drawingBuffer.height > 0) {
+            save(drawingBuffer, 'kaleidoscope.png');
+        } else {
+            console.error("Cannot save, drawing buffer is invalid.");
+        }
+    }
+}

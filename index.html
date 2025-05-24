@@ -46,9 +46,24 @@
             <button onclick="saveUserCanvas()">Save PNG</button>
         </div>
         <div class="control-group">
+            <button onclick="undoAction()" title="Undo (Ctrl+Z)">Undo</button>
+            <button onclick="redoAction()" title="Redo (Ctrl+Y)">Redo</button>
+        </div>
+        <div class="control-group">
             <label for="colorPicker">Color:</label>
             <input type="color" id="colorPicker" value="#FF6B6B" oninput="selectCustomColor(this.value)">
             <button onclick="nextColorFromPalette()">Next Palette Color</button>
+        </div>
+        <div class="control-group layers-panel">
+            <button onclick="addLayer()" title="Add New Layer">Add Layer</button>
+            <button onclick="deleteLayer()" title="Delete Current Layer">Delete Layer</button>
+            <button onclick="clearAllLayers()" title="Clear All Layers">Clear All</button>
+        </div>
+        <div class="control-group layers-panel">
+            <div class="layers-header">Layers</div>
+            <div id="layer-controls" class="layer-list">
+                <!-- Layer controls will be added here dynamically -->
+            </div>
         </div>
     </div>
     <div id="canvas-container">

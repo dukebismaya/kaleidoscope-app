@@ -15,18 +15,29 @@ An interactive digital kaleidoscope art tool for generating stunning symmetrical
 - Dark/light mode toggle
 - Rotation animation
 - One-click random art generation
+- Layer system with opacity control
+- Undo/redo functionality with keyboard shortcuts
 - Save as PNG
 - Responsive & smooth performance
 
 ## 🖱️ Usage
 Just open the HTML file in any modern browser — no installation needed.
 
+### Keyboard Shortcuts
+- **Ctrl+Z**: Undo
+- **Ctrl+Y** or **Ctrl+Shift+Z**: Redo
+
+### Layer System
+- Create up to 5 layers for complex compositions
+- Adjust opacity for each layer individually
+- Toggle layer visibility
+- Undo/redo tracks layer changes
+
 ## 🔧 Built With
 - HTML5, CSS3, JavaScript
 - [p5.js](https://p5js.org/)
 
 ## 📌 Roadmap
-- Undo/redo  
 - More brushes & shapes  
 - SVG export  
 - Gallery support  
